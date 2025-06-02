@@ -84,6 +84,10 @@ buildEnv() {
 
 setExampleAndBoard() {
 	case $PARAM1 in
+		landmarks)
+			EXAMPLE_NAME="Landmarks"
+			BOARD="esp32:esp32:esp32cam"
+			;;
 		spi-display)
 			EXAMPLE_NAME="Display_On_TFT"
 			BOARD="esp32:esp32:esp32cam"
