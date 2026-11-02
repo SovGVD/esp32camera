@@ -33,28 +33,28 @@ typedef struct cameraProcessTasks_t {
 class esp32camera
 {
 	public:
-		void setup(framesize_t frameSize, int fps, int quality);
+		/**
+		 * @param ledcChannel, ledcTimer LEDC channel/timer for the camera clock
+		 *        (XCLK). Pick ones nothing else uses: on Arduino-ESP32 3.x
+		 *        ledcAttach() allocates channels itself, starting from 0.
+		 * @return false if the camera did not start
+		 */
+		bool setup(framesize_t frameSize, int fps, int quality,
+		           ledc_channel_t ledcChannel = LEDC_CHANNEL_0, ledc_timer_t ledcTimer = LEDC_TIMER_0);
+		// Grab a frame every 1/fps and hand it to the enabled tasks. Send it to a
+		// websocket, file, display... from a task added with addTask().
 		void processFrame();
 		uint8_t addTask(cameraProcessFunction _task, bool isEnabled = true);
 		bool removeTask(uint8_t idx);
 		bool setTaskState(uint8_t idx, bool isEnabled);
 		bool enableTask(uint8_t idx);
 		bool disableTask(uint8_t idx);
-		#ifdef ASYNCWEBSOCKET_H_
-			void setClientReady(AsyncWebSocketClient * &wsClient);
-			void setClientDisconnected();
-			void sendFrame(camera_fb_t _framebuffer);
-		#endif
 	private:
 		camera_fb_t          *_fb = NULL;
 		unsigned long        _cameraCurrentTime;
-		unsigned long        _cameraPreviousTime;
+		unsigned long        _cameraPreviousTime = 0;
 		unsigned long        _cameraLoop;
-		uint8_t              _lastTask = 0;
 		cameraProcessTasks   _tasks[ESP32CAMERA_MAX_TASK];
-		#ifdef ASYNCWEBSOCKET_H_
-			AsyncWebSocketClient *_wsclient;
-			bool                 _clientReady = false;
-		#endif
+		bool                 _ready = false;
 };
 #endif
