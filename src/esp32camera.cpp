@@ -3,13 +3,13 @@
  */
 #include "esp32camera.h"
 
-void esp32camera::setup(framesize_t frameSize, int fps, int quality) {
+bool esp32camera::setup(framesize_t frameSize, int fps, int quality, ledc_channel_t ledcChannel, ledc_timer_t ledcTimer) {
 	_cameraLoop = 1000/(float)fps;  // 1000ms = 1 seconds, process frame every 1/FPS
 
 	camera_config_t config;
 
-	config.ledc_channel = LEDC_CHANNEL_0;
-	config.ledc_timer   = LEDC_TIMER_0;
+	config.ledc_channel = ledcChannel;
+	config.ledc_timer   = ledcTimer;
 	config.pin_d0       = Y2_GPIO_NUM;
 	config.pin_d1       = Y3_GPIO_NUM;
 	config.pin_d2       = Y4_GPIO_NUM;
@@ -41,8 +41,8 @@ void esp32camera::setup(framesize_t frameSize, int fps, int quality) {
 	// Init Camera
 	esp_err_t err = esp_camera_init(&config);
 	if (err != ESP_OK) {
-		Serial.printf("ESP32CAM: Camera init failed with error 0x%x", err);
-		return;
+		Serial.printf("ESP32CAM: Camera init failed with error 0x%x\n", err);
+		return false;
 	}
 
 	sensor_t * s = esp_camera_sensor_get();
@@ -72,36 +72,24 @@ void esp32camera::setup(framesize_t frameSize, int fps, int quality) {
 	
 	s->set_framesize(s, frameSize);
 
-	#ifdef ASYNCWEBSOCKET_H_
-		addTask(sendFrame);
-	#endif
+	_ready = true;
+	return true;
 }
-
-#ifdef ASYNCWEBSOCKET_H_
-	void esp32camera::setClientReady(AsyncWebSocketClient * &wsClient) {
-		_clientReady = true;
-		_wsClient = wsClient;
-	}
-
-	void esp32camera::setClientDisconnected() {
-		_clientReady = false;
-	}
-
-	void esp32camera::sendFrame(camera_fb_t _fb)
-	{
-		if (_clientReady && _framebuffer) {
-			_wsclient->binary(_framebuffer->buf, _framebuffer->len); // TODO should be something prior that `buf` to mark that this package is a frame
-			
-		}
-	}
-#endif
 
 void esp32camera::processFrame()
 {
 	_cameraCurrentTime = millis();
 
+	if (!_ready) {
+		return;
+	}
+
 	if (_cameraCurrentTime - _cameraPreviousTime >= _cameraLoop) {
+		_cameraPreviousTime = _cameraCurrentTime;
 		_fb = esp_camera_fb_get();
+		if (!_fb) {
+			return;
+		}
 
 		for(uint8_t idx = 0; idx < ESP32CAMERA_MAX_TASK; idx++) {
 			if (_tasks[idx].isEnabled && !_tasks[idx].isRemoved) {
@@ -111,8 +99,6 @@ void esp32camera::processFrame()
 
 		esp_camera_fb_return(_fb);
 		_fb = NULL;
-
-		_cameraPreviousTime = _cameraCurrentTime;
 	}
 }
 
@@ -123,8 +109,7 @@ uint8_t esp32camera::addTask(cameraProcessFunction _task, bool isEnabled)
 			_tasks[idx].isEnabled = isEnabled;
 			_tasks[idx].isRemoved = false;
 			_tasks[idx].task      = _task;
-		return idx;
-
+			return idx;
 		}
 	}
 
@@ -133,12 +118,17 @@ uint8_t esp32camera::addTask(cameraProcessFunction _task, bool isEnabled)
 
 bool esp32camera::removeTask(uint8_t idx)
 {
-	_tasks[idx].isRemoved = false;
+	if (idx >= ESP32CAMERA_MAX_TASK || _tasks[idx].isRemoved) {
+		return false;
+	}
+	_tasks[idx].isEnabled = false;
+	_tasks[idx].isRemoved = true;
+	return true;
 }
 
 bool esp32camera::setTaskState(uint8_t idx, bool isEnabled)
 {
-	if (_tasks[idx].isRemoved) {
+	if (idx >= ESP32CAMERA_MAX_TASK || _tasks[idx].isRemoved) {
 		return false;
 	}
 	
